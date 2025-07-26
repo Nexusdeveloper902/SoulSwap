@@ -3,123 +3,169 @@ using UnityEngine;
 
 public class PlayerController : MonoBehaviour
 {
+    public static PlayerController Instance;
+
+    [Header("Body Settings")]
+    [Tooltip("1 = No Weapon (suffix _NW); 2 = G (suffix _G); 3 = SS (suffix _SS)")]
+    public int body = 1;
+
     [Header("Components")]
     [SerializeField] private Rigidbody2D rb;
     [SerializeField] private Animator animator;
 
     [Header("Movement Settings")]
     [SerializeField] private float speed = 5f;
-    [SerializeField] private float rollMultiplier = 2f;   // how much faster the roll is
+    [SerializeField] private float rollMultiplier = 2f;
     [SerializeField] private float rollDuration = 0.3f;
+
+    [Header("Attack Settings")]
+    [SerializeField] private float attackDuration = 0.4f;
+    [SerializeField] private float attackSlowMultiplier = 0.5f;
+    [SerializeField] private KeyCode attackKey = KeyCode.Mouse0;
+
+    [Header("Block Settings (Body 3)")]
+    [Tooltip("Block input for body 3")]
+    [SerializeField] private KeyCode blockKey = KeyCode.Mouse1;
 
     private Vector2 movement;
     private Vector2 lastDirection = Vector2.down;
     private bool isRolling = false;
+    private bool isAttacking = false;
+    private bool isBlocking = false;
     private string currentAnim;
 
-    // Animation names
-    private readonly string WALK_UP_NW    = "Walk_Up_NW";
-    private readonly string WALK_DOWN_NW  = "Walk_Down_NW";
-    private readonly string WALK_LEFT_NW  = "Walk_Left_NW";
-    private readonly string WALK_RIGHT_NW = "Walk_Right_NW";
-
-    private readonly string IDLE_UP_NW    = "Idle_Up_NW";
-    private readonly string IDLE_DOWN_NW  = "Idle_Down_NW";
-    private readonly string IDLE_LEFT_NW  = "Idle_Left_NW";
-    private readonly string IDLE_RIGHT_NW = "Idle_Right_NW";
-
-    private readonly string ROLL_UP_NW    = "Roll_Up_NW";
-    private readonly string ROLL_DOWN_NW  = "Roll_Down_NW";
-    private readonly string ROLL_LEFT_NW  = "Roll_Left_NW";
-    private readonly string ROLL_RIGHT_NW = "Roll_Right_NW";
+    void Awake()
+    {
+        Instance = this;
+    }
 
     void Update()
     {
-        if (isRolling) return;
-
-        // Read input
+        // Always read movement input
         movement.x = Input.GetAxisRaw("Horizontal");
         movement.y = Input.GetAxisRaw("Vertical");
         movement.Normalize();
 
-        // Choose walk or idle animation
-        if (movement != Vector2.zero)
+        // Handle block for body==3
+        if (body == 3)
         {
-            lastDirection = movement;
-            SetWalkAnimFromDirection(movement);
-        }
-        else
-        {
-            SetIdleAnimFromDirection(lastDirection);
+            if (Input.GetKeyDown(blockKey) && !isRolling && !isAttacking)
+                StartCoroutine(Block());
+
+            // while blocking, ignore other actions
+            if (isBlocking)
+                return;
         }
 
-        // Start roll
-        if (Input.GetKeyDown(KeyCode.Q))
+        // Update facing and animations when not rolling/attacking/blocking
+        if (!isRolling && !isAttacking && !isBlocking)
+        {
+            if (movement != Vector2.zero)
+                lastDirection = movement;
+
+            PlayWalkOrIdle();
+        }
+
+        // Roll
+        if (!isRolling && !isAttacking && !isBlocking && Input.GetKeyDown(KeyCode.Q))
             StartCoroutine(Roll());
+
+        // Attack (available for all bodies)
+        if (!isRolling && !isAttacking && !isBlocking && Input.GetKeyDown(attackKey))
+            StartCoroutine(Attack());
     }
 
     void FixedUpdate()
     {
-        if (!isRolling)
+        if (isRolling)
+            return;
+
+        if (isAttacking)
         {
-            rb.velocity = movement * speed;
+            rb.velocity = movement * speed * attackSlowMultiplier;
+            return;
         }
-        // else, velocity is being handled in Roll()
+
+        if (isBlocking)
+        {
+            rb.velocity = Vector2.zero;
+            return;
+        }
+
+        rb.velocity = movement * speed;
     }
 
     IEnumerator Roll()
     {
         isRolling = true;
 
-        // Select roll animation based on last direction
-        if (Mathf.Abs(lastDirection.x) > Mathf.Abs(lastDirection.y))
-            SetAnimation(lastDirection.x > 0 ? ROLL_RIGHT_NW : ROLL_LEFT_NW);
-        else
-            SetAnimation(lastDirection.y > 0 ? ROLL_UP_NW : ROLL_DOWN_NW);
-
-        // Apply instantaneous velocity
+        PlayDirectionalAnim("Roll");
         rb.velocity = lastDirection * speed * rollMultiplier;
-
         yield return new WaitForSeconds(rollDuration);
-
-        // End roll
-        rb.velocity = Vector2.zero;
         isRolling = false;
     }
 
-    void SetAnimation(string anim)
+    IEnumerator Attack()
     {
-        if (anim == currentAnim) return;
-        if (!animator.HasState(0, Animator.StringToHash(anim)))
+        isAttacking = true;
+
+        PlayDirectionalAnim("Attack");
+        yield return new WaitForSeconds(attackDuration);
+        isAttacking = false;
+        PlayWalkOrIdle();
+    }
+
+    IEnumerator Block()
+    {
+        isBlocking = true;
+
+        PlayDirectionalAnim("Block");
+        // block lasts while key held; stop when released
+        while (Input.GetKey(blockKey))
+            yield return null;
+
+        isBlocking = false;
+        PlayWalkOrIdle();
+    }
+
+    private void PlayWalkOrIdle()
+    {
+        if (isRolling || isAttacking || isBlocking)
+            return;
+
+        if (movement != Vector2.zero)
+            PlayDirectionalAnim("Walk");
+        else
+            PlayDirectionalAnim("Idle");
+    }
+
+    private void PlayDirectionalAnim(string action)
+    {
+        string direction = Mathf.Abs(lastDirection.x) > Mathf.Abs(lastDirection.y)
+            ? (lastDirection.x > 0 ? "Right" : "Left")
+            : (lastDirection.y > 0 ? "Up" : "Down");
+
+        PlayAnim(action, direction);
+    }
+
+    private void PlayAnim(string action, string direction)
+    {
+        string suffix = body == 1 ? "NW"
+                      : body == 2 ? "G"
+                      : body == 3 ? "SS" : "";
+        string animName = $"{action}_{direction}_{suffix}";
+
+        if (animName == currentAnim)
+            return;
+
+        int hash = Animator.StringToHash(animName);
+        if (!animator.HasState(0, hash))
         {
-            Debug.LogError($"Animation '{anim}' not found on layer 0");
+            Debug.LogError($"Animation '{animName}' not found on layer 0");
             return;
         }
-        animator.Play(anim);
-        currentAnim = anim;
-    }
 
-    void SetWalkAnimFromDirection(Vector2 dir)
-    {
-        if (Mathf.Abs(dir.x) > Mathf.Abs(dir.y))
-        {
-            SetAnimation(dir.x > 0 ? WALK_RIGHT_NW : WALK_LEFT_NW);
-        }
-        else
-        {
-            SetAnimation(dir.y > 0 ? WALK_UP_NW : WALK_DOWN_NW);
-        }
-    }
-
-    void SetIdleAnimFromDirection(Vector2 dir)
-    {
-        if (Mathf.Abs(dir.x) > Mathf.Abs(dir.y))
-        {
-            SetAnimation(dir.x > 0 ? IDLE_RIGHT_NW : IDLE_LEFT_NW);
-        }
-        else
-        {
-            SetAnimation(dir.y > 0 ? IDLE_UP_NW : IDLE_DOWN_NW);
-        }
+        animator.Play(animName);
+        currentAnim = animName;
     }
 }

@@ -398,11 +398,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 84a6c504b81bb7b468e5f45e8fc26b2e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  body: 1
   rb: {fileID: 809418735}
   animator: {fileID: 1863397357}
   speed: 5
-  rollMultiplier: 2
-  rollDuration: 0.5
+  rollMultiplier: 1.13
+  rollDuration: 0.44
+  attackDuration: 0.4
+  attackSlowMultiplier: 0.5
+  attackKey: 323
+  blockKey: 324
 --- !u!4 &809418737
 Transform:
   m_ObjectHideFlags: 0
